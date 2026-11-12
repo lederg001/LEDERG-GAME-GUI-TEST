@@ -8,8 +8,12 @@ on:
       - 'launcher-source.tar.gz.b64'
       - '.github/workflows/build-crmp-launcher.yml'
 
+concurrency:
+  group: lederd-crmp-launcher-build-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
@@ -28,7 +32,7 @@ jobs:
         shell: pwsh
         run: |
           python -c "import struct,sys; print(sys.version); assert struct.calcsize('P') == 4, 'Build must use 32-bit Python'"
-          python -c "import base64,pathlib; pathlib.Path('source.tar.gz').write_bytes(base64.b64decode(pathlib.Path('launcher-source.tar.gz.b64').read_bytes()))"
+          python -c "import base64,pathlib; p=pathlib.Path('launcher-source.tar.gz.b64'); data=p.read_bytes(); data += b'=' * (-len(data) % 4); pathlib.Path('source.tar.gz').write_bytes(base64.b64decode(data, validate=True))"
           python -c "import tarfile; tarfile.open('source.tar.gz','r:gz').extractall('source')"
 
       - name: Install build and test tools
@@ -58,10 +62,28 @@ jobs:
           if ($machine -ne 0x014C) { throw ('Expected x86 PE machine 0x014C, got 0x{0:X4}' -f $machine) }
           Write-Host 'Verified: PE32 x86 Windows GUI executable.'
 
-      - name: Upload direct launcher EXE
+      - name: Upload direct launcher EXE artifact
         uses: actions/upload-artifact@v4
         with:
           name: LEDERG-CRMP-DIRECT-LAUNCHER-WIN32
           path: source/dist/LEDERG_CRMP_Launcher.exe
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish portable EXE and checksum
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path 'public-downloads' | Out-Null
+          Copy-Item 'source/dist/LEDERG_CRMP_Launcher.exe' 'public-downloads/LEDERG_CRMP_Launcher.exe' -Force
+          $hash = (Get-FileHash 'public-downloads/LEDERG_CRMP_Launcher.exe' -Algorithm SHA256).Hash.ToLower()
+          Set-Content -LiteralPath 'public-downloads/LEDERG_CRMP_Launcher.sha256' -Value "$hash  LEDERG_CRMP_Launcher.exe" -NoNewline
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add public-downloads/LEDERG_CRMP_Launcher.exe public-downloads/LEDERG_CRMP_Launcher.sha256
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m 'Publish verified LEDERG CRMP direct launcher'
+            git push origin HEAD:main
+          } else {
+            Write-Host 'Portable launcher is already up to date.'
+          }
