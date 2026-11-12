@@ -5,8 +5,10 @@ on:
   push:
     branches: [main]
     paths:
-      - 'launcher-source.tar.gz.b64'
+      - 'launcher-source-v4.tar.gz.b64'
       - '.github/workflows/build-crmp-launcher.yml'
+  pull_request:
+    branches: [main]
 
 concurrency:
   group: lederd-crmp-launcher-build-${{ github.ref }}
@@ -32,7 +34,7 @@ jobs:
         shell: pwsh
         run: |
           python -c "import struct,sys; print(sys.version); assert struct.calcsize('P') == 4, 'Build must use 32-bit Python'"
-          python -c "import base64,pathlib; p=pathlib.Path('launcher-source.tar.gz.b64'); data=p.read_bytes(); data += b'=' * (-len(data) % 4); pathlib.Path('source.tar.gz').write_bytes(base64.b64decode(data, validate=True))"
+          python -c "import base64,pathlib; p=pathlib.Path('launcher-source-v4.tar.gz.b64'); data=p.read_bytes(); data += b'=' * (-len(data) % 4); decoded=base64.b64decode(data, validate=True); assert decoded[:2] == b'\\x1f\\x8b', 'Source bundle is not gzip'; pathlib.Path('source.tar.gz').write_bytes(decoded)"
           python -c "import tarfile; tarfile.open('source.tar.gz','r:gz').extractall('source')"
 
       - name: Install build and test tools
@@ -48,8 +50,6 @@ jobs:
         run: >-
           python -m PyInstaller --noconfirm --clean --onefile --windowed
           --name LEDERG_CRMP_Launcher
-          --icon assets/lederg.ico
-          --version-file version_info.txt
           launcher.py
 
       - name: Verify PE architecture
@@ -65,12 +65,13 @@ jobs:
       - name: Upload direct launcher EXE artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LEDERG-CRMP-DIRECT-LAUNCHER-WIN32
+          name: LEDERG-CRMP-AUTO-CONNECT-LAUNCHER-WIN32
           path: source/dist/LEDERG_CRMP_Launcher.exe
           if-no-files-found: error
           retention-days: 30
 
       - name: Publish portable EXE and checksum
+        if: github.event_name == 'push'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path 'public-downloads' | Out-Null
@@ -89,7 +90,7 @@ jobs:
           }
 
       - name: Publish build status (even on failure)
-        if: always()
+        if: always() && github.event_name == 'push'
         shell: pwsh
         run: |
           $status = "${{ job.status }}"
