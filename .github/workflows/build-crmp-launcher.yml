@@ -10,7 +10,7 @@ on:
 
 concurrency:
   group: lederd-crmp-launcher-build-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -86,4 +86,27 @@ jobs:
             git push origin HEAD:main
           } else {
             Write-Host 'Portable launcher is already up to date.'
+          }
+
+      - name: Publish build status (even on failure)
+        if: always()
+        shell: pwsh
+        run: |
+          $status = "${{ job.status }}"
+          $commit = "${{ github.sha }}"
+          $text = @"
+          LEDERG CRMP launcher build
+          Status: $status
+          Commit: $commit
+          Workflow: $env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID
+          "@
+          New-Item -ItemType Directory -Force -Path 'public-downloads' | Out-Null
+          Set-Content -LiteralPath 'public-downloads/BUILD_STATUS.txt' -Value $text -Encoding utf8
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add public-downloads/BUILD_STATUS.txt
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m 'Record LEDERG CRMP launcher build status'
+            git push origin HEAD:main
           }
