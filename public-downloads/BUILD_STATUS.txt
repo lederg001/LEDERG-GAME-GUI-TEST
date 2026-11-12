@@ -1,0 +1,4 @@
+LEDERG CRMP launcher build
+Status: failure
+Commit: 67260519c6583b4034c12bebd8b0ad962a38ba36
+Workflow: https://github.com/lederg001/LEDERG-GAME-GUI-TEST/actions/runs/43285315326
