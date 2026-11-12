@@ -7,6 +7,8 @@ on:
     paths:
       - 'launcher-source.tar.gz.b64'
       - '.github/workflows/build-crmp-launcher.yml'
+  pull_request:
+    branches: [main]
 
 concurrency:
   group: lederd-crmp-launcher-build-${{ github.ref }}
@@ -71,6 +73,7 @@ jobs:
           retention-days: 30
 
       - name: Publish portable EXE and checksum
+        if: github.event_name == 'push'
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path 'public-downloads' | Out-Null
@@ -89,7 +92,7 @@ jobs:
           }
 
       - name: Publish build status (even on failure)
-        if: always()
+        if: always() && github.event_name == 'push'
         shell: pwsh
         run: |
           $status = "${{ job.status }}"
