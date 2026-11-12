@@ -1,12 +1,12 @@
-name: Build LEDERG CRMP Launcher
+name: Build LEDERG CRMP Direct Launcher (Windows x86)
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:
       - 'launcher-source.tar.gz.b64'
       - '.github/workflows/build-crmp-launcher.yml'
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -18,18 +18,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
+      - name: Set up 32-bit Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
+          architecture: 'x86'
 
-      - name: Decode source bundle
+      - name: Verify x86 runtime and unpack source
         shell: pwsh
         run: |
-          python -c "import base64, pathlib; pathlib.Path('source.tar.gz').write_bytes(base64.b64decode(pathlib.Path('launcher-source.tar.gz.b64').read_bytes()))"
-          python -c "import tarfile; tarfile.open('source.tar.gz', 'r:gz').extractall('source')"
+          python -c "import struct,sys; print(sys.version); assert struct.calcsize('P') == 4, 'Build must use 32-bit Python'"
+          python -c "import base64,pathlib; pathlib.Path('source.tar.gz').write_bytes(base64.b64decode(pathlib.Path('launcher-source.tar.gz.b64').read_bytes()))"
+          python -c "import tarfile; tarfile.open('source.tar.gz','r:gz').extractall('source')"
 
-      - name: Install build and test dependencies
+      - name: Install build and test tools
         working-directory: source
         run: python -m pip install --upgrade pyinstaller pytest
 
@@ -37,7 +39,7 @@ jobs:
         working-directory: source
         run: python -m pytest -q
 
-      - name: Build one-file Windows EXE
+      - name: Build one-file Windows x86 EXE
         working-directory: source
         run: >-
           python -m PyInstaller --noconfirm --clean --onefile --windowed
@@ -46,10 +48,20 @@ jobs:
           --version-file version_info.txt
           launcher.py
 
-      - name: Upload EXE artifact
+      - name: Verify PE architecture
+        shell: pwsh
+        run: |
+          $bytes = [System.IO.File]::ReadAllBytes('source/dist/LEDERG_CRMP_Launcher.exe')
+          if ($bytes[0] -ne 0x4D -or $bytes[1] -ne 0x5A) { throw 'Not a PE executable' }
+          $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+          $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+          if ($machine -ne 0x014C) { throw ('Expected x86 PE machine 0x014C, got 0x{0:X4}' -f $machine) }
+          Write-Host 'Verified: PE32 x86 Windows GUI executable.'
+
+      - name: Upload direct launcher EXE
         uses: actions/upload-artifact@v4
         with:
-          name: LEDERG-CRMP-LAUNCHER-WINDOWS
+          name: LEDERG-CRMP-DIRECT-LAUNCHER-WIN32
           path: source/dist/LEDERG_CRMP_Launcher.exe
           if-no-files-found: error
           retention-days: 30
